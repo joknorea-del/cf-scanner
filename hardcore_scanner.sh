@@ -9,7 +9,7 @@ NC='\033[0m'
 
 clear
 echo -e "${RED}======================================================${NC}"
-echo -e "${RED}     DEVIL CF SCANNER - REAL TLS FIXED RANGE MODE     ${NC}"
+echo -e "${RED}     DEVIL CF SCANNER - CONTROLLED PRECISION MODE     ${NC}"
 echo -e "${RED}======================================================${NC}"
 
 RANGES_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main/ranges.txt"
@@ -26,8 +26,8 @@ fi
 # Ask for the Target IP to beat
 echo -e "${YELLOW}[?] Do you have a benchmark Clean IP to beat? (y/n):${NC} "
 read -r has_bench
-BENCH_PING=9999
-BENCH_SPEED=0
+export BENCH_PING=9999
+export BENCH_SPEED=0
 
 if [ "$has_bench" == "y" ] || [ "$has_bench" == "Y" ]; then
     echo -e "${YELLOW}[>] Enter your current Clean IP:${NC} "
@@ -39,30 +39,30 @@ if [ "$has_bench" == "y" ] || [ "$has_bench" == "Y" ]; then
     t_end=$(date +%s%N)
     
     if [ "$h_code" == "200" ] || [ "$h_code" == "400" ]; then
-        BENCH_PING=$(( (t_end - t_start) / 1000000 ))
+        export BENCH_PING=$(( (t_end - t_start) / 1000000 ))
         bench_sp=$(curl -s -w "%{speed_download}" -o /dev/null --max-time 4 "https://$bench_ip/cdn-cgi/images/trace" | cut -d'.' -f1)
-        BENCH_SPEED=$(( bench_sp / 1024 ))
+        export BENCH_SPEED=$(( bench_sp / 1024 ))
         echo -e "${GREEN}[✔] Benchmark Set -> Ping: ${BENCH_PING}ms | Speed: ${BENCH_SPEED} KB/s${NC}\n"
     else
         echo -e "${RED}[!] Failed to benchmark your IP. Proceeding with default values.${NC}\n"
     fi
 fi
 
-RESULT_FILE="devil_clean_ips.txt"
+export RESULT_FILE="devil_clean_ips.txt"
 echo -e "IP\t\tPing\tSpeed" > $RESULT_FILE
 echo "----------------------------------------" >> $RESULT_FILE
 
-# Core function to scan a single IP with high precision
+# Core function exported for xargs usage
 test_concrete_ip() {
     local ip=$1
     
-    # Step 1: High Precision Deep TLS Handshake Check (Anti-SNI Blocking)
+    # Deep TLS Handshake Check
     local tls_check=$(timeout 4 openssl s_client -connect "$ip:443" -tls1_3 -sni "speedtest.net" </dev/null 2>&1)
     if [[ ! "$tls_check" == *"Verification: OK"* ]] && [[ ! "$tls_check" == *"Cipher is"* ]]; then
         return 1
     fi
 
-    # Step 2: WebSocket Simulation
+    # WebSocket Simulation
     local start_time=$(date +%s%N)
     local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 4 \
         -H "Host: speedtest.net" \
@@ -78,11 +78,12 @@ test_concrete_ip() {
         local speed_kb=$(( speed_test / 1024 ))
         
         if [ "$ping_ms" -lt "$BENCH_PING" ] && [ "$speed_kb" -ge "$BENCH_SPEED" ]; then
-            echo -e "${GREEN}[😈 DEVIL IP FOUND] $ip | Ping: ${ping_ms}ms | Speed: ${speed_kb} KB/s${NC}"
-            echo -e "$ip\t${ping_ms}ms\t${speed_kb}KB/s" >> $RESULT_FILE
+            echo -e "\033[0;32m[😈 DEVIL IP FOUND] $ip | Ping: ${ping_ms}ms | Speed: ${speed_kb} KB/s\033[0m"
+            echo -e "$ip\t${ping_ms}ms\t${speed_kb}KB/s" >> "$RESULT_FILE"
         fi
     fi
 }
+export -f test_concrete_ip
 
 # Shuffle the rows of ranges.txt
 shuffled_ranges=$(shuf "$LOCAL_RANGES")
@@ -93,28 +94,17 @@ while IFS= read -r raw_range; do
     clean_range=$(echo "$raw_range" | sed -E 's/\.0\/24//g' | sed -E 's/\/24//g' | sed -E 's/\.$//g')
 
     echo -e "${CYAN}[*] Selected Random Range: $clean_range.0/24${NC}"
-    echo -e "${YELLOW}[+] Scanning all 254 IPs inside this range in SHUFFLED order...${NC}"
+    echo -e "${YELLOW}[+] Scanning 254 IPs carefully using controlled engine...${NC}"
     
-    MAX_JOBS=20
-    job_count=0
+    # Generate shuffled 1-254 list and pipe into xargs for disciplined parallel execution
+    shuf -i 1-254 | sed "s/^/$clean_range./" | xargs -n 1 -P 15 -I {} bash -c 'test_concrete_ip "{}"'
     
-    for i in $(shuf -i 1-254); do
-        test_concrete_ip "$clean_range.$i" &
-        
-        ((job_count++))
-        if [ "$job_count" -ge "$MAX_JOBS" ]; then
-            wait
-            job_count=0
-        fi
-    done
-    wait
-    echo -e "${GREEN}[✔] Finished scanning range $clean_range.0/24${NC}\n"
+    echo -e "${GREEN}[✔] Finished range $clean_range.0/24. Taking a short breath...${NC}\n"
+    sleep 1
     
 done <<< "$shuffled_ranges"
 
-# Clean up temporary ranges file
 rm -f "$LOCAL_RANGES"
 
 echo -e "\n${GREEN}[★] Scan finished! Results saved to $RESULT_FILE${NC}"
 cat $RESULT_FILE
-
