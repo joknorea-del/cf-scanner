@@ -9,7 +9,7 @@ NC='\033[0m'
 
 clear
 echo -e "${RED}======================================================${NC}"
-echo -e "${RED}     DEVIL CF SCANNER - CONTROLLED PRECISION MODE     ${NC}"
+echo -e "${RED}     DEVIL CF SCANNER - BUG FIXED PRECISION MODE     ${NC}"
 echo -e "${RED}======================================================${NC}"
 
 RANGES_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main/ranges.txt"
@@ -35,7 +35,7 @@ if [ "$has_bench" == "y" ] || [ "$has_bench" == "Y" ]; then
     echo -e "${CYAN}[*] Benchmarking your IP... Please wait...${NC}"
     
     t_start=$(date +%s%N)
-    h_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 -H "Host: speedtest.net" -H "Upgrade: websocket" -H "Connection: Upgrade" "https://$bench_ip/cdn-cgi/trace")
+    h_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 6 -H "Host: speedtest.net" -H "Upgrade: websocket" -H "Connection: Upgrade" "https://$bench_ip/cdn-cgi/trace")
     t_end=$(date +%s%N)
     
     if [ "$h_code" == "200" ] || [ "$h_code" == "400" ]; then
@@ -56,15 +56,15 @@ echo "----------------------------------------" >> $RESULT_FILE
 test_concrete_ip() {
     local ip=$1
     
-    # Deep TLS Handshake Check
-    local tls_check=$(timeout 4 openssl s_client -connect "$ip:443" -tls1_3 -sni "speedtest.net" </dev/null 2>&1)
+    # Deep TLS Handshake Check (Slightly extended timeout for high latency networks)
+    local tls_check=$(timeout 5 openssl s_client -connect "$ip:443" -tls1_3 -sni "speedtest.net" </dev/null 2>&1)
     if [[ ! "$tls_check" == *"Verification: OK"* ]] && [[ ! "$tls_check" == *"Cipher is"* ]]; then
         return 1
     fi
 
     # WebSocket Simulation
     local start_time=$(date +%s%N)
-    local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 4 \
+    local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 \
         -H "Host: speedtest.net" \
         -H "Upgrade: websocket" \
         -H "Connection: Upgrade" \
@@ -91,13 +91,17 @@ shuffled_ranges=$(shuf "$LOCAL_RANGES")
 while IFS= read -r raw_range; do
     [ -z "$raw_range" ] && continue
 
-    clean_range=$(echo "$raw_range" | sed -E 's/\.0\/24//g' | sed -E 's/\/24//g' | sed -E 's/\.$//g')
+    # CRITICAL FIX: Ultra clean sanitization of the range string
+    clean_range=$(echo "$raw_range" | sed -E 's/\.0\/24//g' | sed -E 's/\/24//g' | sed -E 's/\.$//g' | tr -d '\r' | tr -d ' ')
+    
+    # Extra check to remove any trailing dots that survived
+    clean_range="${clean_range%.}"
 
     echo -e "${CYAN}[*] Selected Random Range: $clean_range.0/24${NC}"
     echo -e "${YELLOW}[+] Scanning 254 IPs carefully using controlled engine...${NC}"
     
-    # Generate shuffled 1-254 list and pipe into xargs for disciplined parallel execution
-    shuf -i 1-254 | sed "s/^/$clean_range./" | xargs -n 1 -P 15 -I {} bash -c 'test_concrete_ip "{}"'
+    # Generate proper IPs (no double dots!)
+    shuf -i 1-254 | sed "s/^/$clean_range./" | xargs -P 15 -I {} bash -c 'test_concrete_ip "{}"'
     
     echo -e "${GREEN}[✔] Finished range $clean_range.0/24. Taking a short breath...${NC}\n"
     sleep 1
