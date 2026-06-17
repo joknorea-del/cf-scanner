@@ -1,4 +1,4 @@
-Enter#!/bin/bash
+#!/bin/bash
 
 # UI Colors
 GREEN='\033[0;32m'
@@ -9,12 +9,17 @@ NC='\033[0m'
 
 clear
 echo -e "${RED}======================================================${NC}"
-echo -e "${RED}     DEVIL CF SCANNER - HIGH PRECISION HARDCORE       ${NC}"
+echo -e "${RED}     DEVIL CF SCANNER - RANDOM RANGE SELECTION        ${NC}"
 echo -e "${RED}======================================================${NC}"
 
-# Check for ranges file
-if [ ! -f "ranges.txt" ]; then
-    echo -e "${RED}[!] Error: ranges.txt not found! Please create it first.${NC}"
+RANGES_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main/ranges.txt"
+LOCAL_RANGES="ranges.txt"
+
+echo -e "${CYAN}[*] Fetching ranges.txt from GitHub...${NC}"
+curl -s -L "$RANGES_URL" -o "$LOCAL_RANGES"
+
+if [ ! -s "$LOCAL_RANGES" ] || grep -q "404" "$LOCAL_RANGES"; then
+    echo -e "${RED}[!] Error: Could not fetch ranges.txt from GitHub or file is empty!${NC}"
     exit 1
 fi
 
@@ -29,14 +34,12 @@ if [ "$has_bench" == "y" ] || [ "$has_bench" == "Y" ]; then
     read -r bench_ip
     echo -e "${CYAN}[*] Benchmarking your IP... Please wait...${NC}"
     
-    # Measure Benchmark IP Ping & Speed
     t_start=$(date +%s%N)
     h_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 4 -H "Host: speedtest.net" -H "Upgrade: websocket" -H "Connection: Upgrade" "https://$bench_ip/cdn-cgi/trace")
     t_end=$(date +%s%N)
     
     if [ "$h_code" == "200" ] || [ "$h_code" == "400" ]; then
         BENCH_PING=$(( (t_end - t_start) / 1000000 ))
-        # Download speed test (bytes per second)
         bench_sp=$(curl -s -w "%{speed_download}" -o /dev/null --max-time 3 "https://$bench_ip/cdn-cgi/images/trace" | cut -d'.' -f1)
         BENCH_SPEED=$(( bench_sp / 1024 ))
         echo -e "${GREEN}[✔] Benchmark Set -> Ping: ${BENCH_PING}ms | Speed: ${BENCH_SPEED} KB/s${NC}\n"
@@ -53,18 +56,15 @@ echo "----------------------------------------" >> $RESULT_FILE
 test_concrete_ip() {
     local ip=$1
     
-    # Step 1: TCP Port 443 Pre-Check
     if ! nc -z -w 2 "$ip" 443 2>/dev/null; then
         return 1
     fi
 
-    # Step 2: Deep TLS Handshake Check (Anti-SNI Blocking)
     local tls_check=$(timeout 3 openssl s_client -connect "$ip:443" -tls1_3 -sni "speedtest.net" </dev/null 2>&1)
     if [[ ! "$tls_check" == *"Verification: OK"* ]] && [[ ! "$tls_check" == *"Cipher is"* ]]; then
         return 1
     fi
 
-    # Step 3: WebSocket Simulation with strict timeouts
     local start_time=$(date +%s%N)
     local http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 \
         -H "Host: speedtest.net" \
@@ -76,11 +76,9 @@ test_concrete_ip() {
     if [ "$http_code" == "200" ] || [ "$http_code" == "400" ]; then
         local ping_ms=$(( (end_time - start_time) / 1000000 ))
         
-        # Step 4: High Precision Speed & Packet Stability Test
         local speed_test=$(curl -s -w "%{speed_download}" -o /dev/null --max-time 4 "https://$ip/cdn-cgi/images/trace" | cut -d'.' -f1)
         local speed_kb=$(( speed_test / 1024 ))
         
-        # Devil Mode Filter: Must be better than the benchmark IP!
         if [ "$ping_ms" -lt "$BENCH_PING" ] && [ "$speed_kb" -ge "$BENCH_SPEED" ]; then
             echo -e "${GREEN}[😈 DEVIL IP FOUND] $ip | Ping: ${ping_ms}ms | Speed: ${speed_kb} KB/s${NC}"
             echo -e "$ip\t${ping_ms}ms\t${speed_kb}KB/s" >> $RESULT_FILE
@@ -88,7 +86,6 @@ test_concrete_ip() {
     fi
 }
 
-# Check if the entire /24 range is alive before scanning
 check_range_alive() {
     local base_range=$1
     if nc -z -w 2 "$base_range.1" 443 2>/dev/null || nc -z -w 2 "$base_range.128" 443 2>/dev/null || nc -z -w 2 "$base_range.254" 443 2>/dev/null; then
@@ -98,27 +95,28 @@ check_range_alive() {
     fi
 }
 
-# Main Loop
-while IFS= read -r raw_range || [ -n "$raw_range" ]; do
-    raw_range=$(echo "$raw_range" | xargs)
+# 🎯 STEP 1: Shuffle the rows of ranges.txt to make the selection completely random!
+shuffled_ranges=$(shuf "$LOCAL_RANGES")
+
+while IFS= read -r raw_range; do
     [ -z "$raw_range" ] && continue
 
-    # High-precision clean up of /24, .0/24, or trailing dots
     clean_range=$(echo "$raw_range" | sed -E 's/\.0\/24//g' | sed -E 's/\/24//g' | sed -E 's/\.$//g')
 
-    echo -e "${CYAN}[*] Testing Range: $clean_range.0/24${NC}"
+    echo -e "${CYAN}[*] Selected Random Range: $clean_range.0/24${NC}"
     
     if ! check_range_alive "$clean_range"; then
-        echo -e "${RED}[❌] Range $clean_range.0/24 is blocked on your network. Skipping...${NC}"
+        echo -e "${RED}[❌] Range $clean_range.0/24 is blocked. Skipping to next random range...${NC}"
         continue
     fi
 
-    echo -e "${YELLOW}[+] Range Alive! Scanning 254 IPs in parallel...${NC}"
+    echo -e "${YELLOW}[+] Range Alive! Scanning all 254 IPs inside this range...${NC}"
     
     MAX_JOBS=25
     job_count=0
     
-    for i in {1..254}; do
+    # STEP 2: Scan IPs inside this specific range (shuffled internally for extra safety)
+    for i in $(shuf -i 1-254); do
         test_concrete_ip "$clean_range.$i" &
         
         ((job_count++))
@@ -128,8 +126,13 @@ while IFS= read -r raw_range || [ -n "$raw_range" ]; do
         fi
     done
     wait
+    echo -e "${GREEN}[✔] Finished scanning range $clean_range.0/24${NC}\n"
     
-done < "ranges.txt"
+done <<< "$shuffled_ranges"
+
+# Clean up temporary ranges file
+rm -f "$LOCAL_RANGES"
 
 echo -e "\n${GREEN}[★] Scan finished! Results saved to $RESULT_FILE${NC}"
 cat $RESULT_FILE
+
