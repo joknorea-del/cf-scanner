@@ -57,20 +57,21 @@ while IFS= read -r raw_range <&3; do
 
     echo -e "${CYAN}[*] [$current_count/$total_ranges] Checking Range: $clean_range.0/24 ...${NC}"
     
-    # 🎯 ADVANCED RANGE PRE-CHECK (3-Start, 3-Middle, 3-End)
+    # 🎯 ADVANCED RANGE PRE-CHECK (3-Start, 3-Middle, 3-End with Timeout)
     scout_passed=0
-    # IDs: 2,3,4 (Start) | 126,127,128 (Middle) | 251,252,253 (End)
     for scout_id in 2 3 4 126 127 128 251 252 253; do
         scout_ip="$clean_range.$scout_id"
-        if : 2>/dev/null >"/dev/tcp/$scout_ip/443"; then
+        
+        # Fast TCP validation wrapper with strict 1.2s execution boundary
+        if timeout 1.2 bash -c ": 2>/dev/null >/dev/tcp/$scout_ip/443" 2>/dev/null; then
             scout_passed=1
             break
         fi
     done
 
-    # If all 9 scout IPs failed, skip the entire /24 range instantly!
+    # If all 9 scout IPs failed to respond quickly, skip the dead range
     if [ $scout_passed -eq 0 ]; then
-        echo -e "${RED}[!] Range $clean_range.0/24 is totally BLOCKED. Skipping!${NC}"
+        echo -e "${RED}[!] Range $clean_range.0/24 is totally BLOCKED (Timeout). Skipping!${NC}"
         continue
     fi
     
