@@ -9,37 +9,63 @@ NC='\033[0m'
 
 clear
 echo -e "${RED}======================================================${NC}"
-echo -e "${RED}    DEVIL CF SCANNER - THE INVINCIBLE GEAR ENGINE V5  ${NC}"
+echo -e "${RED}    DEVIL CF SCANNER - THE INVINCIBLE GEAR ENGINE V7  ${NC}"
 echo -e "${RED}======================================================${NC}"
+echo -e "${YELLOW}         [★] Multi-Stack Dynamic Scanner Mode [★]       ${NC}"
+echo -e "${RED}======================================================${NC}"
+
+# منوی انتخاب نوع اسکن
+echo -e "${CYAN}Please select the IP family you want to scan:${NC}"
+echo -e "1) ${GREEN}IPv4 Ranges${NC} (Standard Cloudflare IPv4)"
+echo -e "2) ${GREEN}IPv6 Ranges${NC} (Hyper-Space Cloudflare IPv6)"
+echo -ne "\nEnter your choice (1 or 2): "
+read -r SCAN_CHOICE
+
+# آدرس‌های پایه گیت‌هاب تو (اینجا می‌تونی نام فایل‌ها رو مطابق گیت‌هابت تغییر بدی)
+GITHUB_BASE_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main"
+
+if [ "$SCAN_CHOICE" == "1" ]; then
+    echo -e "\n${YELLOW}[*] Selected: IPv4 Scanning Mode${NC}"
+    # نام فایل رنج‌های ۴ در گیت‌هاب تو (مثلاً ranges.txt یا ranges4.txt)
+    GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges.txt"
+    IS_IPV6_MODE=0
+elif [ "$SCAN_CHOICE" == "2" ]; then
+    echo -e "\n${YELLOW}[*] Selected: IPv6 Scanning Mode${NC}"
+    # نام فایل رنج‌های ۶ در گیت‌هاب تو (مثلاً ranges6.txt)
+    GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges6.txt"
+    IS_IPV6_MODE=1
+else
+    echo -e "${RED}[!] Invalid choice! Exiting...${NC}"
+    exit 1
+fi
 
 TARGET_DOM="chatgpt.com"
 RESULT_FILE="devil_clean_ips.txt"
 CACHE_FILE=".cached_ranges.txt"
 SHUFFLED_FILE=".shuffled_ranges.txt"
-GITHUB_RAW_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main/ranges.txt"
 
-# Concurrency Pacing Limit (Increased to 15 for hyper-speed scans on alive ranges)
+# Concurrency Pacing Limit
 MAX_PARALLEL=15
 
 # Safe file initializer
 if [ ! -f "$RESULT_FILE" ]; then
-    echo -e "IP\t\tAvg_Ping" > "$RESULT_FILE"
-    echo "----------------------------------------" >> "$RESULT_FILE"
+    echo -e "IP\t\tAvg_Ping\tSuccess_Rate" > "$RESULT_FILE"
+    echo "--------------------------------------------------------" >> "$RESULT_FILE"
 fi
 
 # Sync & Shuffle Cloud
-echo -e "${YELLOW}[*] Downloading ranges from GitHub...${NC}"
+echo -e "${YELLOW}[*] Downloading selected ranges from GitHub...${NC}"
 if curl -s --connect-timeout 10 "$GITHUB_RAW_URL" -o "$CACHE_FILE"; then
     if [ -s "$CACHE_FILE" ] && ! grep -q "404" "$CACHE_FILE"; then
         shuf "$CACHE_FILE" > "$SHUFFLED_FILE"
         echo -e "${GREEN}[✔] Ranges synced and shuffled successfully!${NC}"
     else
-        echo -e "${YELLOW}[!] Invalid data from cloud. Trying to use old file...${NC}"
+        echo -e "${YELLOW}[!] Invalid data from cloud. Trying to use old cache if exists...${NC}"
     fi
 fi
 
 if [ ! -s "$SHUFFLED_FILE" ]; then
-    echo -e "${RED}[!] Error: No ranges available!${NC}"
+    echo -e "${RED}[!] Error: No ranges available to scan!${NC}"
     exit 1
 fi
 
@@ -48,49 +74,109 @@ echo -e "${GREEN}[✔] Loaded $total_ranges ranges. GEAR ENGINE ONLINE...${NC}\n
 
 current_count=0
 
+# تابع تولید آی‌پی‌های تست برای رنج‌های IPv6 به صورت رندوم اما معتبر
+generate_ipv6_targets() {
+    local base_route=$1
+    # تولید ۲۵۰ آی‌پی تصادفی درون ساب‌نت برای اسکن لایو
+    for i in {1..250}; do
+        local hex1=$(printf '%x' $((RANDOM%65536)))
+        local hex2=$(printf '%x' $((RANDOM%65536)))
+        echo "${base_route}${hex1}:${hex2}"
+    done
+}
+
 while IFS= read -r raw_range <&3; do
     [ -z "$raw_range" ] && continue
     ((current_count++))
 
-    clean_range=$(echo "$raw_range" | sed -E 's/\.0\/24//g' | sed -E 's/\/24//g' | sed -E 's/\.$//g' | tr -d '\r' | tr -d ' ')
-    clean_range="${clean_range%.}"
+    clean_line=$(echo "$raw_range" | tr -d '\r' | tr -d ' ')
 
-    echo -e "${CYAN}[*] [$current_count/$total_ranges] Checking Range: $clean_range.0/24 ...${NC}"
-    
-    # 🎯 ADVANCED RANGE PRE-CHECK (3-Start, 3-Middle, 3-End with Timeout)
-    scout_passed=0
-    for scout_id in 2 3 4 126 127 128 251 252 253; do
-        scout_ip="$clean_range.$scout_id"
-        
-        # Fast TCP validation wrapper with strict 1.2s execution boundary
-        if timeout 1.2 bash -c ": 2>/dev/null >/dev/tcp/$scout_ip/443" 2>/dev/null; then
-            scout_passed=1
-            break
+    if [ $IS_IPV6_MODE -eq 1 ]; then
+        # پردازش رنج IPv6
+        ipv6_base=$(echo "$clean_line" | cut -d'/' -f1)
+        if [[ "$ipv6_base" != *"::" ]]; then
+            ipv6_base="${ipv6_base}::"
         fi
-    done
+        display_range="$clean_line"
+    else
+        # پردازش رنج IPv4
+        clean_range=$(echo "$clean_line" | sed -E 's/\.0\/24//g' | sed -E 's/\/24//g' | sed -E 's/\.$//g')
+        clean_range="${clean_range%.}"
+        display_range="$clean_range.0/24"
+    fi
 
-    # If all 9 scout IPs failed to respond quickly, skip the dead range
+    echo -e "${CYAN}[*] [$current_count/$total_ranges] Checking Range: $display_range ...${NC}"
+    
+    scout_passed=0
+
+    if [ $IS_IPV6_MODE -eq 1 ]; then
+        # 🎯 چک پیشرفته پیش از اسکن (Scout Check) برای IPv6
+        for scout_id in {1..9}; do
+            scout_ip="${ipv6_base}$(printf '%x' $scout_id)"
+            if timeout 1.2 nc -6 -z -w 1 "$scout_ip" 443 2>/dev/null; then
+                scout_passed=1
+                break
+            fi
+        done
+    else
+        # 🎯 چک پیشرفته پیش از اسکن (Scout Check) برای IPv4
+        for scout_id in 2 3 4 126 127 128 251 252 253; do
+            scout_ip="$clean_range.$scout_id"
+            if timeout 1.2 bash -c ": 2>/dev/null >/dev/tcp/$scout_ip/443" 2>/dev/null; then
+                scout_passed=1
+                break
+            fi
+        done
+    fi
+
+    # اگر رنج بلاک بود سریع ردش کن بره
     if [ $scout_passed -eq 0 ]; then
-        echo -e "${RED}[!] Range $clean_range.0/24 is totally BLOCKED (Timeout). Skipping!${NC}"
+        echo -e "${RED}[!] Range $display_range is totally BLOCKED (Timeout). Skipping!${NC}"
         continue
     fi
     
-    # If range is alive, unleash the full scan engine
-    echo -e "${GREEN}[+] Range is ALIVE. Scanning 254 IPs...${NC}"
-    for i in {1..254}; do
-        ip="$clean_range.$i"
-        
+    echo -e "${GREEN}[+] Range is ALIVE. Scanning IPs...${NC}"
+
+    # مشخص کردن لیست نهایی آی‌پی‌ها جهت تست پینگ اصلی
+    if [ $IS_IPV6_MODE -eq 1 ]; then
+        targets=$(generate_ipv6_targets "$ipv6_base")
+    else
+        targets=$(for i in {1..254}; do echo "$clean_range.$i"; done)
+    fi
+
+    echo "$targets" | while read -r ip; do
+        [ -z "$ip" ] && continue
+
         (
-            # Phase 1: TCP Test
-            if : 2>/dev/null >"/dev/tcp/$ip/443"; then
+            connection_alive=0
+            if [ $IS_IPV6_MODE -eq 1 ]; then
+                if timeout 1.5 nc -6 -z -w 1 "$ip" 443 2>/dev/null; then
+                    connection_alive=1
+                fi
+                curl_ip="[$ip]"
+            else
+                if : 2>/dev/null >"/dev/tcp/$ip/443"; then
+                    connection_alive=1
+                fi
+                curl_ip="$ip"
+            fi
+
+            if [ $connection_alive -eq 1 ]; then
                 total_ping=0
                 valid_tests=0
                 
-                # Phase 2: Precise 3-Round Checking
+                # تست ۳ مرحله‌ای با کرول
                 for test_round in {1..3}; do
                     start_time=$(date +%s%N)
-                    http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1.8 --max-time 2.2 \
-                        --resolve "$TARGET_DOM:443:$ip" "https://$TARGET_DOM" < /dev/null)
+                    
+                    if [ $IS_IPV6_MODE -eq 1 ]; then
+                        http_code=$(curl -6 -s -o /dev/null -w "%{http_code}" --connect-timeout 1.8 --max-time 2.2 \
+                            --resolve "$TARGET_DOM:443:$curl_ip" "https://$TARGET_DOM" < /dev/null)
+                    else
+                        http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1.8 --max-time 2.2 \
+                            --resolve "$TARGET_DOM:443:$curl_ip" "https://$TARGET_DOM" < /dev/null)
+                    fi
+                    
                     end_time=$(date +%s%N)
 
                     if [ -n "$http_code" ] && [ "$http_code" -ne 000 ]; then
@@ -104,14 +190,14 @@ while IFS= read -r raw_range <&3; do
                 if [ "$valid_tests" -gt 0 ]; then
                     avg_ping=$(( total_ping / valid_tests ))
                     if [ "$avg_ping" -lt 1400 ]; then
-                        echo -e "${GREEN}[★ LIVE IP] $ip | Avg Ping: ${avg_ping}ms | Success: $valid_tests/3${NC}"
-                        echo -e "$ip\t${avg_ping}ms" >> "$RESULT_FILE"
+                        echo -e "${GREEN}[★ LIVE IP] $ip | Avg Ping: ${avg_ping}ms | Passed: $valid_tests/3${NC}"
+                        echo -e "$ip\t${avg_ping}ms\t$valid_tests/3" >> "$RESULT_FILE"
                     fi
                 fi
             fi
         ) &
         
-        # Mechanical Queue Controller
+        # کنترلر همزمانی (Queue)
         while [ $(jobs -r | wc -l) -ge $MAX_PARALLEL ]; do
             sleep 0.05
         done
@@ -122,3 +208,4 @@ done 3< "$SHUFFLED_FILE"
 
 rm -f "$CACHE_FILE"
 echo -e "${GREEN}[✔] Scan fully completed!${NC}"
+
