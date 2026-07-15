@@ -9,7 +9,7 @@ NC='\033[0m'
 
 clear
 echo -e "${RED}======================================================${NC}"
-echo -e "${RED}    DEVIL CF SCANNER - THE INVINCIBLE GEAR ENGINE V7.2${NC}"
+echo -e "${RED}    DEVIL CF SCANNER - THE INVINCIBLE GEAR ENGINE V7.3${NC}"
 echo -e "${RED}======================================================${NC}"
 echo -e "${YELLOW}         [★] Multi-Stack Dynamic Scanner Mode [★]       ${NC}"
 echo -e "${RED}======================================================${NC}"
@@ -114,16 +114,19 @@ while IFS= read -r raw_range <&3; do
     scout_passed=0
 
     if [ $IS_IPV6_MODE -eq 1 ]; then
-        # 🎯 چک پیشرفته پیش از اسکن (Scout Check) برای IPv6 با الگوی واقعی تو
+        # 🎯 حل مشکل: استفاده از کرول به جای nc برای چک لایو بودن در IPv6
         for scout_suffix in "a29f:c101" "a29f:c110" "a29f:c120"; do
             scout_ip="${ipv6_base}${scout_suffix}"
-            if timeout 1.2 nc -6 -z -w 1 "$scout_ip" 443 2>/dev/null; then
+            http_code=$(curl -6 -s -o /dev/null -w "%{http_code}" --connect-timeout 1.5 --max-time 2.0 \
+                --resolve "$TARGET_DOM:443:[$scout_ip]" "https://$TARGET_DOM" < /dev/null)
+            
+            if [ -n "$http_code" ] && [ "$http_code" -ne 000 ]; then
                 scout_passed=1
                 break
             fi
         done
     else
-        # 🎯 چک پیشرفته پیش از اسکن (Scout Check) برای IPv4
+        # 🎯 چک پیشرفته پیش از اسکن برای IPv4
         for scout_id in 2 3 4 126 127 128 251 252 253; do
             scout_ip="$clean_range.$scout_id"
             if timeout 1.2 bash -c ": 2>/dev/null >/dev/tcp/$scout_ip/443" 2>/dev/null; then
@@ -154,10 +157,11 @@ while IFS= read -r raw_range <&3; do
         (
             connection_alive=0
             if [ $IS_IPV6_MODE -eq 1 ]; then
-                if timeout 1.5 nc -6 -z -w 1 "$ip" 443 2>/dev/null; then
+                # در IPv6 به جای nc از curl سبک استفاده می‌کنیم تا خطای پلتفرم ندهد
+                curl_ip="[$ip]"
+                if timeout 1.5 curl -6 -s -o /dev/null --connect-timeout 1.2 --resolve "$TARGET_DOM:443:$curl_ip" "https://$TARGET_DOM" < /dev/null; then
                     connection_alive=1
                 fi
-                curl_ip="[$ip]"
             else
                 if : 2>/dev/null >"/dev/tcp/$ip/443"; then
                     connection_alive=1
@@ -174,10 +178,10 @@ while IFS= read -r raw_range <&3; do
                     start_time=$(date +%s%N)
                     
                     if [ $IS_IPV6_MODE -eq 1 ]; then
-                        http_code=$(curl -6 -s -o /dev/null -w "%{http_code}" --connect-timeout 1.8 --max-time 2.2 \
+                        http_code=$(curl -6 -s -o /dev/null -w "%{http_code}" --connect-timeout 1.5 --max-time 2.0 \
                             --resolve "$TARGET_DOM:443:$curl_ip" "https://$TARGET_DOM" < /dev/null)
                     else
-                        http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1.8 --max-time 2.2 \
+                        http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1.5 --max-time 2.0 \
                             --resolve "$TARGET_DOM:443:$curl_ip" "https://$TARGET_DOM" < /dev/null)
                     fi
                     
