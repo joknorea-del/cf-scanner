@@ -19,19 +19,21 @@ echo -e "${CYAN}Please select the IP family you want to scan:${NC}"
 echo -e "1) ${GREEN}IPv4 Ranges${NC} (Standard Cloudflare IPv4)"
 echo -e "2) ${GREEN}IPv6 Ranges${NC} (Hyper-Space Cloudflare IPv6)"
 echo -ne "\nEnter your choice (1 or 2): "
-read -r SCAN_CHOICE
+
+# حل مشکل ورودی با خواندن مستقیم از tty
+read -r SCAN_CHOICE < /dev/tty
 
 # آدرس‌های پایه گیت‌هاب تو (اینجا می‌تونی نام فایل‌ها رو مطابق گیت‌هابت تغییر بدی)
 GITHUB_BASE_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main"
 
 if [ "$SCAN_CHOICE" == "1" ]; then
     echo -e "\n${YELLOW}[*] Selected: IPv4 Scanning Mode${NC}"
-    # نام فایل رنج‌های ۴ در گیت‌هاب تو (مثلاً ranges.txt یا ranges4.txt)
+    # نام فایل رنج‌های ۴ در گیت‌هاب تو (ranges.txt)
     GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges.txt"
     IS_IPV6_MODE=0
 elif [ "$SCAN_CHOICE" == "2" ]; then
     echo -e "\n${YELLOW}[*] Selected: IPv6 Scanning Mode${NC}"
-    # نام فایل رنج‌های ۶ در گیت‌هاب تو (مثلاً ranges6.txt)
+    # نام فایل رنج‌های ۶ در گیت‌هاب تو (ranges6.txt)
     GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges6.txt"
     IS_IPV6_MODE=1
 else
@@ -208,4 +210,3 @@ done 3< "$SHUFFLED_FILE"
 
 rm -f "$CACHE_FILE"
 echo -e "${GREEN}[✔] Scan fully completed!${NC}"
-
