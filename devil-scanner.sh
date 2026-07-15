@@ -9,7 +9,7 @@ NC='\033[0m'
 
 clear
 echo -e "${RED}======================================================${NC}"
-echo -e "${RED}    DEVIL CF SCANNER - THE INVINCIBLE GEAR ENGINE V7  ${NC}"
+echo -e "${RED}    DEVIL CF SCANNER - THE INVINCIBLE GEAR ENGINE V7.2${NC}"
 echo -e "${RED}======================================================${NC}"
 echo -e "${YELLOW}         [★] Multi-Stack Dynamic Scanner Mode [★]       ${NC}"
 echo -e "${RED}======================================================${NC}"
@@ -23,17 +23,15 @@ echo -ne "\nEnter your choice (1 or 2): "
 # حل مشکل ورودی با خواندن مستقیم از tty
 read -r SCAN_CHOICE < /dev/tty
 
-# آدرس‌های پایه گیت‌هاب تو (اینجا می‌تونی نام فایل‌ها رو مطابق گیت‌هابت تغییر بدی)
+# آدرس‌های پایه گیت‌هاب تو
 GITHUB_BASE_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main"
 
 if [ "$SCAN_CHOICE" == "1" ]; then
     echo -e "\n${YELLOW}[*] Selected: IPv4 Scanning Mode${NC}"
-    # نام فایل رنج‌های ۴ در گیت‌هاب تو (ranges.txt)
     GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges.txt"
     IS_IPV6_MODE=0
 elif [ "$SCAN_CHOICE" == "2" ]; then
     echo -e "\n${YELLOW}[*] Selected: IPv6 Scanning Mode${NC}"
-    # نام فایل رنج‌های ۶ در گیت‌هاب تو (ranges6.txt)
     GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges6.txt"
     IS_IPV6_MODE=1
 else
@@ -76,14 +74,13 @@ echo -e "${GREEN}[✔] Loaded $total_ranges ranges. GEAR ENGINE ONLINE...${NC}\n
 
 current_count=0
 
-# تابع تولید آی‌پی‌های تست برای رنج‌های IPv6 به صورت رندوم اما معتبر
+# تابع تولید آی‌پی‌های تست برای رنج‌های IPv6 بر اساس الگوی واقعی کشف شده تو
 generate_ipv6_targets() {
     local base_route=$1
-    # تولید ۲۵۰ آی‌پی تصادفی درون ساب‌نت برای اسکن لایو
+    # تولید آی‌پی با الگوی طلایی کشف شده تو (مانند a29f:c1xx)
     for i in {1..250}; do
-        local hex1=$(printf '%x' $((RANDOM%65536)))
-        local hex2=$(printf '%x' $((RANDOM%65536)))
-        echo "${base_route}${hex1}:${hex2}"
+        local hex_suffix=$(printf '%x' $((49409 + RANDOM%240))) # جنریت محدوده c100 تا c1f0 به صورت رندوم
+        echo "${base_route}a29f:${hex_suffix}"
     done
 }
 
@@ -91,13 +88,18 @@ while IFS= read -r raw_range <&3; do
     [ -z "$raw_range" ] && continue
     ((current_count++))
 
-    clean_line=$(echo "$raw_range" | tr -d '\r' | tr -d ' ')
+    clean_line=$(echo "$raw_range" | tr -d '\r' | tr -d ' ' | cut -d'/' -f1)
 
     if [ $IS_IPV6_MODE -eq 1 ]; then
-        # پردازش رنج IPv6
-        ipv6_base=$(echo "$clean_line" | cut -d'/' -f1)
-        if [[ "$ipv6_base" != *"::" ]]; then
-            ipv6_base="${ipv6_base}::"
+        # پردازش رنج IPv6 (اطمینان از وجود :: در انتهای بیس رنج)
+        if [[ "$clean_line" != *"::" ]]; then
+            if [[ "$clean_line" == *":" ]]; then
+                ipv6_base="${clean_line}:"
+            else
+                ipv6_base="${clean_line}::"
+            fi
+        else
+            ipv6_base="$clean_line"
         fi
         display_range="$clean_line"
     else
@@ -112,9 +114,9 @@ while IFS= read -r raw_range <&3; do
     scout_passed=0
 
     if [ $IS_IPV6_MODE -eq 1 ]; then
-        # 🎯 چک پیشرفته پیش از اسکن (Scout Check) برای IPv6
-        for scout_id in {1..9}; do
-            scout_ip="${ipv6_base}$(printf '%x' $scout_id)"
+        # 🎯 چک پیشرفته پیش از اسکن (Scout Check) برای IPv6 با الگوی واقعی تو
+        for scout_suffix in "a29f:c101" "a29f:c110" "a29f:c120"; do
+            scout_ip="${ipv6_base}${scout_suffix}"
             if timeout 1.2 nc -6 -z -w 1 "$scout_ip" 443 2>/dev/null; then
                 scout_passed=1
                 break
