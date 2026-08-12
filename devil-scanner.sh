@@ -12,16 +12,20 @@ echo -e "${RED}======================================================${NC}"
 echo -e "${RED}    DEVIL CF & WARP SCANNER - THE INVINCIBLE ENGINE    ${NC}"
 echo -e "${RED}======================================================${NC}"
 
-# Menu Selection
+# Fix Pipe Input by reading directly from Terminal TTY
 echo -e "${CYAN}[?] Select Scan Mode:${NC}"
 echo -e "  ${YELLOW}1)${NC} Cloudflare Normal IPs (CDN/Proxy)"
 echo -e "  ${YELLOW}2)${NC} Cloudflare WARP Endpoints"
-read -p "Enter choice [1-2]: " SCAN_MODE
+read -p "Enter choice [1-2]: " SCAN_MODE < /dev/tty
 
 echo -e "\n${CYAN}[?] Select IP Version:${NC}"
 echo -e "  ${YELLOW}1)${NC} IPv4"
 echo -e "  ${YELLOW}2)${NC} IPv6"
-read -p "Enter choice [1-2]: " IP_VERSION
+read -p "Enter choice [1-2]: " IP_VERSION < /dev/tty
+
+# Sanitize & Default Fallbacks (Prevents Empty Variable Errors)
+SCAN_MODE=${SCAN_MODE:-1}
+IP_VERSION=${IP_VERSION:-1}
 
 # Configuration
 TARGET_DOM="chatgpt.com"
@@ -88,7 +92,7 @@ echo -e "${GREEN}[✔] Loaded $total_ranges ranges. GEAR ENGINE ONLINE...${NC}\n
 
 current_count=0
 
-# Engine Execution
+# Engine Execution (Bulletproof line-by-line reading)
 while IFS= read -r raw_range <&3; do
     [ -z "$raw_range" ] && continue
     ((current_count++))
@@ -108,6 +112,61 @@ while IFS= read -r raw_range <&3; do
         
         (
             if [ "$SCAN_MODE" -eq 2 ]; then
+                # WARP Scan Phase: Socket check on WARP primary ports (2408/500)
+                start_time=$(date +%s%N)
+                if : 2>/dev/null >"/dev/tcp/$ip/2408" || : 2>/dev/null >"/dev/tcp/$ip/500"; then
+                    end_time=$(date +%s%N)
+                    ping_ms=$(( (end_time - start_time) / 1000000 ))
+                    
+                    if [ "$ping_ms" -lt 1400 ]; then
+                        echo -e "${GREEN}[★ LIVE WARP IP] $ip | Ping: ${ping_ms}ms${NC}"
+                        echo -e "$ip\t${ping_ms}ms" >> "$RESULT_FILE"
+                    fi
+                fi
+            else
+                # Normal Cloudflare Scan Phase
+                if : 2>/dev/null >"/dev/tcp/$ip/443"; then
+                    total_ping=0
+                    valid_tests=0
+                    
+                    for test_round in {1..3}; do
+                        start_time=$(date +%s%N)
+                        http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1.8 --max-time 2.2 \
+                            --resolve "$TARGET_DOM:443:$ip" "https://$TARGET_DOM" < /dev/null)
+                        end_time=$(date +%s%N)
+
+                        if [ -n "$http_code" ] && [ "$http_code" -ne 000 ]; then
+                            ping_ms=$(( (end_time - start_time) / 1000000 ))
+                            total_ping=$(( total_ping + ping_ms ))
+                            ((valid_tests++))
+                        fi
+                        sleep 0.02
+                    done
+
+                    if [ "$valid_tests" -gt 0 ]; then
+                        avg_ping=$(( total_ping / valid_tests ))
+                        if [ "$avg_ping" -lt 1400 ]; then
+                            echo -e "${GREEN}[★ LIVE IP] $ip | Avg Ping: ${avg_ping}ms | Success: $valid_tests/3${NC}"
+                            echo -e "$ip\t${avg_ping}ms" >> "$RESULT_FILE"
+                        fi
+                    fi
+                fi
+            fi
+        ) &
+        
+        # Mechanical Queue Controller
+        while [ $(jobs -r | wc -l) -ge $MAX_PARALLEL ]; do
+            sleep 0.05
+        done
+        
+    done
+    
+    wait
+    
+done 3< "$SHUFFLED_FILE"
+
+rm -f "$CACHE_FILE"
+echo -e "${GREEN}[✔] Scan fully completed without interrupts!${NC}"
                 # WARP Scan Phase: Socket check on WARP primary ports (2408/500)
                 start_time=$(date +%s%N)
                 if : 2>/dev/null >"/dev/tcp/$ip/2408" || : 2>/dev/null >"/dev/tcp/$ip/500"; then
