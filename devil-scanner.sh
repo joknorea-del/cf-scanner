@@ -9,63 +9,77 @@ NC='\033[0m'
 
 clear
 echo -e "${RED}======================================================${NC}"
-echo -e "${RED}    DEVIL CF SCANNER - THE INVINCIBLE GEAR ENGINE V7.5${NC}"
-echo -e "${RED}======================================================${NC}"
-echo -e "${YELLOW}         [★] Multi-Stack Dynamic Scanner Mode [★]       ${NC}"
+echo -e "${RED}    DEVIL CF & WARP SCANNER - THE INVINCIBLE ENGINE    ${NC}"
 echo -e "${RED}======================================================${NC}"
 
-# Selection Menu
-echo -e "${CYAN}Please select the IP family you want to scan:${NC}"
-echo -e "1) ${GREEN}IPv4 Ranges${NC} (Standard Cloudflare IPv4)"
-echo -e "2) ${GREEN}IPv6 Ranges${NC} (Hyper-Space Cloudflare IPv6)"
-echo -ne "\nEnter your choice (1 or 2): "
+# Menu Selection
+echo -e "${CYAN}[?] Select Scan Mode:${NC}"
+echo -e "  ${YELLOW}1)${NC} Cloudflare Normal IPs (CDN/Proxy)"
+echo -e "  ${YELLOW}2)${NC} Cloudflare WARP Endpoints"
+read -p "Enter choice [1-2]: " SCAN_MODE
 
-# Secure TTY input reader
-read -r SCAN_CHOICE < /dev/tty
+echo -e "\n${CYAN}[?] Select IP Version:${NC}"
+echo -e "  ${YELLOW}1)${NC} IPv4"
+echo -e "  ${YELLOW}2)${NC} IPv6"
+read -p "Enter choice [1-2]: " IP_VERSION
 
-# GitHub Configurations
-GITHUB_BASE_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main"
-
-if [ "$SCAN_CHOICE" == "1" ]; then
-    echo -e "\n${YELLOW}[*] Selected: IPv4 Scanning Mode${NC}"
-    GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges.txt"
-    IS_IPV6_MODE=0
-elif [ "$SCAN_CHOICE" == "2" ]; then
-    echo -e "\n${YELLOW}[*] Selected: IPv6 Scanning Mode${NC}"
-    GITHUB_RAW_URL="${GITHUB_BASE_URL}/ranges6.txt"
-    IS_IPV6_MODE=1
-else
-    echo -e "${RED}[!] Invalid choice! Exiting...${NC}"
-    exit 1
-fi
-
+# Configuration
 TARGET_DOM="chatgpt.com"
-RESULT_FILE="devil_clean_ips.txt"
+MAX_PARALLEL=15
 CACHE_FILE=".cached_ranges.txt"
 SHUFFLED_FILE=".shuffled_ranges.txt"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/joknorea-del/cf-scanner/main/ranges.txt"
 
-# Concurrency Limit
-MAX_PARALLEL=15
+# Set Result File based on mode
+if [ "$SCAN_MODE" -eq 2 ]; then
+    RESULT_FILE="devil_warp_ips.txt"
+else
+    RESULT_FILE="devil_clean_ips.txt"
+fi
 
-# Initialize Output File
+# Safe File Initializer
 if [ ! -f "$RESULT_FILE" ]; then
-    echo -e "IP\t\tAvg_Ping\tSuccess_Rate" > "$RESULT_FILE"
-    echo "--------------------------------------------------------" >> "$RESULT_FILE"
+    echo -e "IP\t\tAvg_Ping" > "$RESULT_FILE"
+    echo "----------------------------------------" >> "$RESULT_FILE"
 fi
 
-# Sync & Shuffle
-echo -e "${YELLOW}[*] Downloading selected ranges from GitHub...${NC}"
-if curl -s --connect-timeout 10 "$GITHUB_RAW_URL" -o "$CACHE_FILE"; then
-    if [ -s "$CACHE_FILE" ] && ! grep -q "404" "$CACHE_FILE"; then
-        shuf "$CACHE_FILE" > "$SHUFFLED_FILE"
-        echo -e "${GREEN}[✔] Ranges synced and shuffled successfully!${NC}"
+# Internal WARP Ranges
+WARP_IPV4_RANGES=(
+    "162.159.192.0/24"
+    "162.159.193.0/24"
+    "162.159.195.0/24"
+    "162.159.204.0/24"
+    "188.114.96.0/24"
+    "188.114.97.0/24"
+    "188.114.98.0/24"
+    "188.114.99.0/24"
+)
+
+WARP_IPV6_RANGES=(
+    "2606:4700:d0::/48"
+    "2606:4700:d1::/48"
+)
+
+# Load Ranges Strategy
+> "$CACHE_FILE"
+
+if [ "$SCAN_MODE" -eq 2 ]; then
+    echo -e "${YELLOW}[*] Loading Built-in WARP Ranges...${NC}"
+    if [ "$IP_VERSION" -eq 1 ]; then
+        printf "%s\n" "${WARP_IPV4_RANGES[@]}" > "$CACHE_FILE"
     else
-        echo -e "${YELLOW}[!] Invalid data from cloud. Trying to use old cache if exists...${NC}"
+        printf "%s\n" "${WARP_IPV6_RANGES[@]}" > "$CACHE_FILE"
     fi
+else
+    echo -e "${YELLOW}[*] Downloading Cloudflare ranges from GitHub...${NC}"
+    curl -s --connect-timeout 10 "$GITHUB_RAW_URL" -o "$CACHE_FILE"
 fi
 
-if [ ! -s "$SHUFFLED_FILE" ]; then
-    echo -e "${RED}[!] Error: No ranges available to scan!${NC}"
+if [ -s "$CACHE_FILE" ]; then
+    shuf "$CACHE_FILE" > "$SHUFFLED_FILE"
+    echo -e "${GREEN}[✔] Ranges loaded and shuffled successfully!${NC}"
+else
+    echo -e "${RED}[!] Error: Failed to load ranges! Check your internet.${NC}"
     exit 1
 fi
 
@@ -74,43 +88,81 @@ echo -e "${GREEN}[✔] Loaded $total_ranges ranges. GEAR ENGINE ONLINE...${NC}\n
 
 current_count=0
 
-# Helper function to generate target IPv6 addresses
-generate_ipv6_targets() {
-    local base_route=$1
-    for i in {1..250}; do
-        local hex_suffix=$(printf '%x' $((49409 + RANDOM%240)))
-        echo "${base_route}a29f:${hex_suffix}"
-    done
-}
-
-# Scan Execution Engine
+# Engine Execution
 while IFS= read -r raw_range <&3; do
     [ -z "$raw_range" ] && continue
     ((current_count++))
 
-    if [ $IS_IPV6_MODE -eq 1 ]; then
-        # ======================================================
-        # IPV6 SCANNING FLOW (Dedicated & Isolated)
-        # ======================================================
-        clean_line=$(echo "$raw_range" | tr -d '\r' | tr -d ' ' | cut -d'/' -f1)
-        
-        if [[ "$clean_line" != *"::" ]]; then
-            if [[ "$clean_line" == *":" ]]; then
-                ipv6_base="${clean_line}:"
-            else
-                ipv6_base="${clean_line}::"
-            fi
+    clean_range=$(echo "$raw_range" | sed -E 's/\.0\/24//g' | sed -E 's/\/24//g' | sed -E 's/\.$//g' | tr -d '\r' | tr -d ' ')
+    clean_range="${clean_range%.}"
+
+    echo -e "${CYAN}[*] [$current_count/$total_ranges] Engine Scan: $clean_range${NC}"
+    
+    for i in {1..254}; do
+        if [ "$IP_VERSION" -eq 1 ]; then
+            ip="$clean_range.$i"
         else
-            ipv6_base="$clean_line"
+            # Sample generator for IPv6 host allocation
+            ip="${clean_range::-4}:$i"
         fi
         
-        echo -e "${CYAN}[*] [$current_count/$total_ranges] Checking Range: $clean_line ...${NC}"
+        (
+            if [ "$SCAN_MODE" -eq 2 ]; then
+                # WARP Scan Phase: Socket check on WARP primary ports (2408/500)
+                start_time=$(date +%s%N)
+                if : 2>/dev/null >"/dev/tcp/$ip/2408" || : 2>/dev/null >"/dev/tcp/$ip/500"; then
+                    end_time=$(date +%s%N)
+                    ping_ms=$(( (end_time - start_time) / 1000000 ))
+                    
+                    if [ "$ping_ms" -lt 1400 ]; then
+                        echo -e "${GREEN}[★ LIVE WARP IP] $ip | Ping: ${ping_ms}ms${NC}"
+                        echo -e "$ip\t${ping_ms}ms" >> "$RESULT_FILE"
+                    fi
+                fi
+            else
+                # Normal Cloudflare Scan Phase
+                if : 2>/dev/null >"/dev/tcp/$ip/443"; then
+                    total_ping=0
+                    valid_tests=0
+                    
+                    for test_round in {1..3}; do
+                        start_time=$(date +%s%N)
+                        http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 1.8 --max-time 2.2 \
+                            --resolve "$TARGET_DOM:443:$ip" "https://$TARGET_DOM" < /dev/null)
+                        end_time=$(date +%s%N)
+
+                        if [ -n "$http_code" ] && [ "$http_code" -ne 000 ]; then
+                            ping_ms=$(( (end_time - start_time) / 1000000 ))
+                            total_ping=$(( total_ping + ping_ms ))
+                            ((valid_tests++))
+                        fi
+                        sleep 0.02
+                    done
+
+                    if [ "$valid_tests" -gt 0 ]; then
+                        avg_ping=$(( total_ping / valid_tests ))
+                        if [ "$avg_ping" -lt 1400 ]; then
+                            echo -e "${GREEN}[★ LIVE IP] $ip | Avg Ping: ${avg_ping}ms | Success: $valid_tests/3${NC}"
+                            echo -e "$ip\t${avg_ping}ms" >> "$RESULT_FILE"
+                        fi
+                    fi
+                fi
+            fi
+        ) &
         
-        scout_passed=0
-        for scout_suffix in "a29f:c101" "a29f:c110" "a29f:c120"; do
-            scout_ip="${ipv6_base}${scout_suffix}"
-            
-            http_code=$(curl -6 -s -o /dev/null -w "%{http_code}" --connect-timeout 2.0 --max-time 3.0 \
+        # Mechanical Queue Controller
+        while [ $(jobs -r | wc -l) -ge $MAX_PARALLEL ]; do
+            sleep 0.05
+        done
+        
+    done
+    
+    wait
+    
+done 3< "$SHUFFLED_FILE"
+
+rm -f "$CACHE_FILE"
+echo -e "${GREEN}[✔] Scan fully completed without interrupts!${NC}"
                 --resolve "$TARGET_DOM:443:$scout_ip" "https://$TARGET_DOM" < /dev/null)
             
             if [ -n "$http_code" ] && [ "$http_code" -ne 000 ]; then
